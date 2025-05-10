@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Optional
 
 from homeassistant.components.assist_pipeline.vad import VadSensitivity
 from homeassistant.core import HomeAssistant, callback
@@ -30,6 +31,18 @@ class SatelliteDevice:
     _is_muted_listener: Callable[[], None] | None = None
     _pipeline_listener: Callable[[], None] | None = None
     _audio_settings_listener: Callable[[], None] | None = None
+    _remote_trigger_listener: Callable[[str | None], None] | None = None
+
+    @callback
+    def remote_trigger(self, question_id: Optional[str] = None) -> None:
+        """Remote Trigger the Detection and bypass wake word."""
+        if self._remote_trigger_listener is not None:
+            self._remote_trigger_listener(question_id)
+
+    @callback
+    def set_remote_trigger_listener(self, remote_trigger_listener: Callable[[str | None], None]) -> None:
+        """Listen for updates to remote trigger."""
+        self._remote_trigger_listener = remote_trigger_listener
 
     @callback
     def set_is_active(self, active: bool) -> None:
