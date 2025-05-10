@@ -425,19 +425,16 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
     # -------------------------------------------------------------------------
 
     def _remote_trigger(self, question_id: Optional[str] = None) -> None:
-        if (
-            self.is_running
-            and (not self.device.is_muted)
-            and (not self._is_pipeline_running)
-        ):
-            # Ask client of answer to a question
-            ask = Detection(
-                name="remote",
-            ).event()
-            if question_id is not None:
-                ask.data["question_id"] = question_id
-            self.hass.add_job(self._client.write_event(ask))
+        # if (
+        #     self.is_running
+        #     and (not self.device.is_muted)
+        #     and (not self._is_pipeline_running)
+        # ):
 
+        # create pipeline without wakeword when triggered
+        self.hass.add_job(self._handle_audio_settings_changed_async())
+        _LOGGER.info("<===== REMOTE TRIGGER =====>")
+    
     def _send_pause(self) -> None:
         """Send a pause message to satellite."""
         if self._client is not None:
@@ -469,10 +466,9 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
         """Run when device audio settings."""
 
         # Cancel any running pipeline
-        # self._audio_queue.put_nowait(None)
+        self._audio_queue.put_nowait(None)
 
-        # create pipeline without wakeword when audio setting changed
-        self.hass.add_job(self._handle_audio_settings_changed_async())
+
 
     async def _handle_audio_settings_changed_async(self) -> None:
         """
@@ -596,7 +592,6 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
                 done, pending = await asyncio.wait(
                     pending,
                     return_when=asyncio.FIRST_COMPLETED,
-                    # Timeout slightly larger than ping to allow ping processing
                     timeout=_PING_TIMEOUT + 1
                 )
             except TimeoutError:
@@ -604,7 +599,7 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
                 _LOGGER.debug("Main satellite loop timeout, will check for ping.")
                 continue # Re-evaluate while condition and send_ping
 
-            # --- 1. Handle Immediate Listen Trigger (e.g., from audio settings change) ---
+            # --- 1. Handle Immediate Listen Trigger (e.g., from remote change) ---
             if immediate_listen_trigger_task in done:
                 _LOGGER.debug("Immediate listen event triggered in main loop.")
                 self._immediate_listen_event.clear() # Reset the event for next time
@@ -629,8 +624,7 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
                     self._force_pipeline_config = None # Consume the forced config
                     # Start pipeline without a specific wake word phrase, as it's an immediate listen.
                     self._run_pipeline_once(current_run_params, wake_word_phrase=None)
-                    # The Transcribe event to the satellite will be sent by on_pipeline_event
-                    # when the Home Assistant pipeline's STT_START event fires.
+
                 else:
                     _LOGGER.debug("Immediate listen event triggered but no forced config found. Ignoring.")
                 # Continue to the next iteration to manage the newly started pipeline or wait for other events.
@@ -680,9 +674,11 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
                 # --- Process Specific Client Events ---
                 if Pong.is_type(client_event.type):
                     send_ping = True # Allow next ping to be scheduled
+                
                 elif Ping.is_type(client_event.type):
                     ping = Ping.from_event(client_event)
                     await self._client.write_event(Pong(text=ping.text).event())
+                
                 elif RunPipeline.is_type(client_event.type):
                     _LOGGER.debug("Satellite requested RunPipeline.")
                     if self._is_pipeline_running:
@@ -690,15 +686,13 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
                             "Satellite sent RunPipeline while a pipeline is already active. "
                             "Stopping current and starting new as per satellite request."
                         )
-                        if self._audio_queue: self._audio_queue.put_nowait(None)
-                        # We won't explicitly await pipeline_ended_event here;
-                        # _run_pipeline_once will effectively reset state for the new pipeline.
+                        if self._audio_queue: self._audio_queue.put_nowait(None)                         
 
                     new_run_params = RunPipeline.from_event(client_event)
                     _LOGGER.info(f"Starting pipeline as requested by satellite: {new_run_params}")
                     current_run_params = new_run_params # Store as current config
                     self._run_pipeline_once(current_run_params, wake_word_phrase)
-                    # wake_word_phrase might have been set by a preceding Detection event.
+                
                 elif AudioChunk.is_type(client_event.type):
                     if self._is_pipeline_running and self._audio_queue:
                         chunk = AudioChunk.from_event(client_event)
@@ -706,30 +700,34 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
                         self._audio_queue.put_nowait(chunk.audio)
                     else:
                         _LOGGER.debug("Received AudioChunk but no pipeline running or audio queue. Ignoring.")
+                
                 elif AudioStop.is_type(client_event.type):
                     if self._is_pipeline_running and self._audio_queue:
                         _LOGGER.debug("Client requested pipeline to stop (AudioStop). Signaling audio queue.")
-                        self._audio_queue.put_nowait(None) # End audio stream. HA PipelineEvent.RUN_END will follow.
+                        self._audio_queue.put_nowait(None)  
                     else:
                         _LOGGER.debug("Received AudioStop but no pipeline running or audio queue. Ignoring.")
+                
                 elif Info.is_type(client_event.type):
                     client_info = Info.from_event(client_event)
                     _LOGGER.debug("Updated client info from satellite: %s", client_info)
+                
                 elif Detection.is_type(client_event.type):
                     detection = Detection.from_event(client_event)
-                    resolved_wake_phrase = detection.name # Default if not found in info
+                    resolved_wake_phrase = detection.name  
                     if client_info and client_info.wake:
                         for wake_service in client_info.wake:
                             for wake_model in wake_service.models:
                                 if wake_model.name == detection.name:
                                     resolved_wake_phrase = wake_model.phrase or wake_model.name
                                     break
-                            if resolved_wake_phrase != detection.name: # Found specific phrase
+                            if resolved_wake_phrase != detection.name: 
                                 break
                     wake_word_phrase = resolved_wake_phrase
                     _LOGGER.debug(f"Client detected wake word: {wake_word_phrase}")
                     # Satellite usually sends Detection then RunPipeline.
                     # Storing wake_word_phrase here is for the subsequent RunPipeline.
+                
                 elif Played.is_type(client_event.type):
                     self.tts_response_finished() # Call existing handler
                     if self._played_event_received is not None:
@@ -749,8 +747,7 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
                         _LOGGER.debug(f"Task {task.get_name()} was cancelled.")
                     except Exception as e:
                         _LOGGER.error(f"Exception in background task {task.get_name()}: {e!r}", exc_info=e)
-                        # Depending on the task, might need specific error handling.
-                        # If it's a critical failure, consider re-raising to stop the main loop.
+                         
             # End of processing 'done' tasks for this iteration.
 
         # Loop exited (self.is_running is False or device is muted)
@@ -764,56 +761,35 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
         _LOGGER.debug("All pending tasks in _run_pipeline_loop have been processed or cancelled.")
 
     def _run_pipeline_once(
-        self, run_pipeline: RunPipeline, wake_word_phrase: str | None = None
-    ) -> None:
-        """Run a Home Assistant pipeline once based on the provided configuration."""
-        _LOGGER.debug(
-            "Preparing to run pipeline once. Config: %s, Wake phrase: '%s'",
-            run_pipeline,
-            wake_word_phrase
-        )
+            self, run_pipeline: RunPipeline, wake_word_phrase: str | None = None
+        ) -> None:
+            """Run a pipeline once."""
+            _LOGGER.debug("Received run information: %s", run_pipeline)
 
-        # Map Wyoming pipeline stages to Home Assistant pipeline stages
-        start_stage = _STAGES.get(run_pipeline.start_stage)
-        end_stage = _STAGES.get(run_pipeline.end_stage)
+            start_stage = _STAGES.get(run_pipeline.start_stage)
+            end_stage = _STAGES.get(run_pipeline.end_stage)
 
-        if start_stage is None:
-            _LOGGER.error(f"Invalid start stage from Wyoming: {run_pipeline.start_stage}")
-            # Potentially send an error event back to satellite if applicable
-            return # Cannot proceed
+            if start_stage is None:
+                raise ValueError(f"Invalid start stage: {run_pipeline.start_stage}")
 
-        if end_stage is None:
-            _LOGGER.error(f"Invalid end stage from Wyoming: {run_pipeline.end_stage}")
-            return # Cannot proceed
+            if end_stage is None:
+                raise ValueError(f"Invalid end stage: {run_pipeline.end_stage}")
 
-        # Each pipeline run needs its own audio queue.
-        # The old queue (if any) should have been drained or will be GC'd.
-        self._audio_queue = asyncio.Queue()
+            # We will push audio in through a queue
+            self._audio_queue = asyncio.Queue()
 
-        self._is_pipeline_running = True  # Mark that a pipeline is now active
-        self._pipeline_ended_event.clear() # Clear before starting, it's awaited by the main loop
-
-        # self.device.set_is_active(True) will be called by on_pipeline_event
-        # when an active stage like WAKE_WORD_START or STT_START begins.
-        # This is generally preferred to avoid marking active too early if there's a delay.
-
-        _LOGGER.info(
-            f"Starting Home Assistant pipeline from stage '{start_stage.value}' to "
-            f"'{end_stage.value}'. Wake word: '{wake_word_phrase if wake_word_phrase else "None"}'."
-        )
-
-        self.config_entry.async_create_background_task(
-            self.hass,
-            self.async_accept_pipeline_from_satellite(
-                audio_stream=self._stt_stream(), # This uses self._audio_queue
-                start_stage=start_stage,
-                end_stage=end_stage,
-                wake_word_phrase=wake_word_phrase,
-                # pipeline_id can be passed if needed from run_pipeline.pipeline
-                # conversation_id can be managed if needed
-            ),
-            "wyoming_satellite_ha_pipeline_runner",
-        )
+            self._is_pipeline_running = True
+            self._pipeline_ended_event.clear()
+            self.config_entry.async_create_background_task(
+                self.hass,
+                self.async_accept_pipeline_from_satellite(
+                    audio_stream=self._stt_stream(),
+                    start_stage=start_stage,
+                    end_stage=end_stage,
+                    wake_word_phrase=wake_word_phrase,
+                ),
+                "wyoming satellite pipeline",
+            )
 
     async def _send_delayed_ping(self) -> None:
         """Send ping to satellite after a delay."""

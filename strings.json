@@ -69,5 +69,18 @@
         "name": "Mic volume"
       }
     }
+  },
+  "services": {
+    "remote_trigger": {
+      "name": "Remote Trigger",
+      "description": "Remotely trigger the Assist satellite.",
+      "fields": {
+        "entity_id": {
+          "name": "Entity ID",
+          "description": "The satellite entity to trigger."
+        }
+
+      }
+    }
   }
 }

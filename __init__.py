@@ -6,7 +6,7 @@ import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceResponse, SupportsResponse
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.typing import ConfigType
@@ -24,7 +24,6 @@ CONFIG_SCHEMA = cv.empty_config_schema(DOMAIN)
 SATELLITE_PLATFORMS = [
     Platform.ASSIST_SATELLITE,
     Platform.BINARY_SENSOR,
-
     Platform.SELECT,
     Platform.SWITCH,
     Platform.NUMBER,
@@ -42,7 +41,6 @@ __all__ = [
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Wyoming integration."""
     async_register_websocket_api(hass)
-
     return True
 
 
@@ -79,6 +77,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # Set up satellite entity, sensors, switches, etc.
         await hass.config_entries.async_forward_entry_setups(entry, SATELLITE_PLATFORMS)
+
+
+    async def handle_remote_trigger_service(call) -> ServiceResponse:
+        for item in hass.data.get(DOMAIN, {}).values():
+            device = getattr(item, "device", None)
+            if device is not None:
+                device.remote_trigger()
+        return {}
+    try:
+        if not hass.services.has_service(DOMAIN, "remote_trigger"):
+            hass.services.async_register(
+                DOMAIN, "remote_trigger", handle_remote_trigger_service, supports_response=SupportsResponse.OPTIONAL
+            )
+        _LOGGER.info("Wyoming: remote_trigger service registered successfully.")
+    except Exception as e:
+        _LOGGER.error(f"Wyoming: Error during async_register for remote_trigger: {e}", exc_info=True) # Log full exception
+        raise # Re-raise if you want setup to fail clearly here
 
     return True
 
