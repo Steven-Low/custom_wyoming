@@ -607,7 +607,8 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
                 immediate_listen_trigger_task = self.config_entry.async_create_background_task(
                     self.hass, self._immediate_listen_event.wait(), "satellite_immediate_listen_trigger"
                 )
-                # pending.add(immediate_listen_trigger_task)
+                pending.add(immediate_listen_trigger_task)
+                
                 self._pipeline_ended_event.clear()
                 pipeline_ended_task = (
                         self.config_entry.async_create_background_task(
