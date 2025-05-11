@@ -431,9 +431,8 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
         #     and (not self._is_pipeline_running)
         # ):
 
-        # create pipeline without wakeword when triggered
+        # create pipeline without wakeword when triggered and run forcefully 
         self.hass.add_job(self._handle_remote_trigger_async())
-        _LOGGER.info("<===== REMOTE TRIGGER =====>")
     
     def _send_pause(self) -> None:
         """Send a pause message to satellite."""
@@ -621,7 +620,7 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
 
 
                 if self._force_pipeline_config:
-                    _LOGGER.info("Main loop: Processing forced pipeline start due to audio settings change.")
+                    _LOGGER.debug("Main loop: Processing forced pipeline start due to audio settings change.")
                     # _handle_audio_settings_changed_async should have stopped any running pipeline.
                     if self._is_pipeline_running:
                         _LOGGER.warning(
@@ -652,13 +651,6 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
 
                 wake_word_phrase = None # Clear last wake word after a pipeline fully ends.
 
-                # if current_run_params and current_run_params.restart_on_end:
-                #     _LOGGER.debug("Restarting pipeline due to 'restart_on_end=True'.")
-                #     self._run_pipeline_once(current_run_params, wake_word_phrase=None)
-                # else:
-                #     # Pipeline ended and no restart requested.
-                #     _LOGGER.debug("Pipeline ended. Not restarting.")
-                #     current_run_params = None # Clear params for the pipeline that just ended.
                 if (run_pipeline is not None) and run_pipeline.restart_on_end:
                     # Automatically restart pipeline.
                     # Used with "always on" streaming satellites.
