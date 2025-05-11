@@ -432,7 +432,7 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
         # ):
 
         # create pipeline without wakeword when triggered
-        self.hass.add_job(self._handle_audio_settings_changed_async())
+        self.hass.add_job(self._handle_remote_trigger_async())
         _LOGGER.info("<===== REMOTE TRIGGER =====>")
     
     def _send_pause(self) -> None:
@@ -470,7 +470,7 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
 
 
 
-    async def _handle_audio_settings_changed_async(self) -> None:
+    async def _handle_remote_trigger_async(self) -> None:
         """
         Prepares for an immediate pipeline run triggered by audio settings change.
         It signals any current pipeline to stop and then sets up configuration
@@ -516,12 +516,11 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
             start_stage=PipelineStage.ASR,  # Wyoming's ASR maps to HA's STT
             end_stage=PipelineStage.TTS,    # Wyoming's TTS maps to HA's TTS
             # Forcing restart_on_end=False is sensible for a one-shot listen on settings change.
-            restart_on_end=False,
+            restart_on_end=True,
             # 'sound' can be specified if needed, otherwise defaults.
         )
 
         # 3. Signal the main loop (_run_pipeline_loop) to process this.
-        _LOGGER.debug("Audio settings change: Signaling main loop for immediate listen.")
         self._immediate_listen_event.set()  # This will wake up _run_pipeline_loop
 
 
@@ -558,6 +557,7 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
         assert self._client is not None
         client_info: Info | None = None
         wake_word_phrase: str | None = None
+        run_pipeline: RunPipeline | None = None  # default pipeline
         send_ping = True
 
         # This variable will hold the configuration for the currently active/desired pipeline run.
@@ -594,6 +594,7 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
                     return_when=asyncio.FIRST_COMPLETED,
                     timeout=_PING_TIMEOUT + 1
                 )
+ 
             except TimeoutError:
                 # Loop timeout, likely for ping. 'pending' is updated by asyncio.wait.
                 _LOGGER.debug("Main satellite loop timeout, will check for ping.")
@@ -607,7 +608,17 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
                 immediate_listen_trigger_task = self.config_entry.async_create_background_task(
                     self.hass, self._immediate_listen_event.wait(), "satellite_immediate_listen_trigger"
                 )
-                pending.add(immediate_listen_trigger_task)
+                # pending.add(immediate_listen_trigger_task)
+                self._pipeline_ended_event.clear()
+                pipeline_ended_task = (
+                        self.config_entry.async_create_background_task(
+                            self.hass,
+                            self._pipeline_ended_event.wait(),
+                            "satellite pipeline ended",
+                        )
+                )
+                pending.add(pipeline_ended_task)
+
 
                 if self._force_pipeline_config:
                     _LOGGER.info("Main loop: Processing forced pipeline start due to audio settings change.")
@@ -624,18 +635,16 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
                     self._force_pipeline_config = None # Consume the forced config
                     # Start pipeline without a specific wake word phrase, as it's an immediate listen.
                     self._run_pipeline_once(current_run_params, wake_word_phrase=None)
-
+                    _LOGGER.info("<==== RUNNING REMOTE PIPELINE ====>")
+                    continue
+                    
                 else:
                     _LOGGER.debug("Immediate listen event triggered but no forced config found. Ignoring.")
-                # Continue to the next iteration to manage the newly started pipeline or wait for other events.
-
+  
             # --- 2. Handle Pipeline End Event (from Home Assistant's pipeline) ---
             if pipeline_ended_task in done:
-                _LOGGER.debug("Pipeline finished event received in main loop.")
-                # This event is set by on_pipeline_event(RUN_END).
-                # _is_pipeline_running is set to False within on_pipeline_event.
+                _LOGGER.info("Pipeline finished event received in main loop.")
                 self._pipeline_ended_event.clear() # Clear the event now that we've processed it.
-                # Re-arm the task for the next pipeline end
                 pipeline_ended_task = self.config_entry.async_create_background_task(
                     self.hass, self._pipeline_ended_event.wait(), "satellite_pipeline_ended"
                 )
@@ -643,15 +652,20 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
 
                 wake_word_phrase = None # Clear last wake word after a pipeline fully ends.
 
-                if current_run_params and current_run_params.restart_on_end:
-                    _LOGGER.debug("Restarting pipeline due to 'restart_on_end=True'.")
-                    self._run_pipeline_once(current_run_params, wake_word_phrase=None)
-                else:
-                    # Pipeline ended and no restart requested.
-                    _LOGGER.debug("Pipeline ended. Not restarting.")
-                    current_run_params = None # Clear params for the pipeline that just ended.
-                    # self.device.set_is_active(False) is handled by on_pipeline_event(RUN_END)
-                # Continue to the next iteration.
+                # if current_run_params and current_run_params.restart_on_end:
+                #     _LOGGER.debug("Restarting pipeline due to 'restart_on_end=True'.")
+                #     self._run_pipeline_once(current_run_params, wake_word_phrase=None)
+                # else:
+                #     # Pipeline ended and no restart requested.
+                #     _LOGGER.debug("Pipeline ended. Not restarting.")
+                #     current_run_params = None # Clear params for the pipeline that just ended.
+                if (run_pipeline is not None) and run_pipeline.restart_on_end:
+                    # Automatically restart pipeline.
+                    # Used with "always on" streaming satellites.
+                    self._run_pipeline_once(run_pipeline)
+                    _LOGGER.info("<==== RUNNING DEFAULT PIPELINE (RESTART) ====>")
+                    continue
+
 
             # --- 3. Handle Client Event from Wyoming Satellite ---
             if client_event_task in done:
@@ -688,10 +702,11 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
                         )
                         if self._audio_queue: self._audio_queue.put_nowait(None)                         
 
-                    new_run_params = RunPipeline.from_event(client_event)
-                    _LOGGER.info(f"Starting pipeline as requested by satellite: {new_run_params}")
-                    current_run_params = new_run_params # Store as current config
+                    run_pipeline = RunPipeline.from_event(client_event)
+                    _LOGGER.info(f"Starting pipeline as requested by satellite: {run_pipeline}")
+                    current_run_params = run_pipeline # Store as current config
                     self._run_pipeline_once(current_run_params, wake_word_phrase)
+                    _LOGGER.info("<==== RUNNING DEFAULT PIPELINE ====>")
                 
                 elif AudioChunk.is_type(client_event.type):
                     if self._is_pipeline_running and self._audio_queue:
