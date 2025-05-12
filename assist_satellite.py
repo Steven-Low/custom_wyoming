@@ -475,27 +475,25 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
         It signals any current pipeline to stop and then sets up configuration
         and an event for the main loop to start a new pipeline.
         """
-        _LOGGER.info("Processing audio settings change.")
 
         if not self.is_running or self.device.is_muted or self._client is None:
             _LOGGER.info(
-                "Audio settings change: Conditions not met (not running, muted, or no client). Aborting."
+                "Conditions not met (not running, muted, or no client). Aborting."
             )
             return
 
         # 1. Signal any existing pipeline to stop and wait for it to acknowledge end.
         if self._is_pipeline_running:
-            _LOGGER.debug("Audio settings change: Existing pipeline is running. Requesting stop.")
             if self._audio_queue:  # Check if queue exists
                 self._audio_queue.put_nowait(None)  # Signal audio stream to end
             try:
                 # Wait for the pipeline to naturally end via its RUN_END event
                 async with asyncio.timeout(_PIPELINE_FINISH_TIMEOUT):
                     await self._pipeline_ended_event.wait()
-                _LOGGER.debug("Audio settings change: Existing pipeline finished gracefully.")
+                _LOGGER.debug("Existing pipeline finished gracefully.")
             except TimeoutError:
                 _LOGGER.warning(
-                    "Audio settings change: Timeout waiting for current pipeline to end. "
+                    "Timeout waiting for current pipeline to end. "
                     "The new pipeline will proceed; the old one might not have cleaned up fully."
                 )
             finally:
@@ -515,7 +513,7 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
             start_stage=PipelineStage.ASR,  # Wyoming's ASR maps to HA's STT
             end_stage=PipelineStage.TTS,    # Wyoming's TTS maps to HA's TTS
             # Forcing restart_on_end=False is sensible for a one-shot listen on settings change.
-            restart_on_end=True,
+            restart_on_end=False,
             # 'sound' can be specified if needed, otherwise defaults.
         )
 
