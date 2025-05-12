@@ -16,5 +16,5 @@
   "issue_tracker": "https://github.com/Steven-Low/custom_wyoming/issues",
   "requirements": ["wyoming==1.5.4"],
   "zeroconf": ["_wyoming._tcp.local."],
-  "version": "1.0.0"
+  "version": "v1.0.0"
 }
