@@ -1,6 +1,6 @@
 {
     "name": "Custom Wyoming",
-    "domains": ["custom_wyoming"],
+    "domains": ["wyoming"],
     "render_readme": true,
     "homeassistant": "2025.4.0"
 }
