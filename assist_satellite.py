@@ -458,9 +458,6 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
         #     and (not self.device.is_muted)
         #     and (not self._is_pipeline_running)
         # ):
-
-        # create pipeline without wakeword when triggered and run forcefully
-        # self.hass.add_job(self._handle_remote_trigger_async())
         self.config_entry.async_create_background_task(
                 self.hass,
                 self._handle_remote_trigger_async(),
@@ -530,18 +527,12 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
                     "The new pipeline will proceed; the old one might not have cleaned up fully."
                 )
             finally:
-                # _is_pipeline_running is set to False by on_pipeline_event(RUN_END)
-                # _pipeline_ended_event is also cleared by the main loop after processing.
-                # We ensure it's clear here to avoid race conditions if the main loop
-                # hasn't processed the old event yet.
                 self._pipeline_ended_event.clear()
         else:
             # If no pipeline was running, still ensure the event is clear.
             self._pipeline_ended_event.clear()
 
         # 2. Define parameters for the new pipeline run (immediate listen).
-        # This configuration will be picked up by the main loop.
-        # We start directly at ASR (STT) and end at TTS.
         self._force_pipeline_config = RunPipeline(
             start_stage=PipelineStage.ASR,  # Wyoming's ASR maps to HA's STT
             end_stage=PipelineStage.TTS,    # Wyoming's TTS maps to HA's TTS
@@ -649,7 +640,6 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
                         if self._is_pipeline_running:
                             _LOGGER.warning(
                                 "Immediate listen: Pipeline was unexpectedly still running when force start was processed. "
-                                "The previous pipeline stop might have failed or timed out."
                             )
                             # As a fallback, ensure audio queue is signaled to stop.
                             if self._audio_queue: self._audio_queue.put_nowait(None)
@@ -866,7 +856,8 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
 
                 await self._client.write_event(AudioStop(timestamp=timestamp).event())
             except (ConnectionResetError, TypeError) as e:
-                _LOGGER.warning("Lost connection during pipeline execution: %s", e)
+                _LOGGER.warning("Lost client connection during pipeline execution: %s", e)
+                #elf._audio_queue.put_nowait(None) # clean the audio pipeline 
 
             _LOGGER.info("TTS streaming complete") # debug
 

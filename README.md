@@ -25,3 +25,5 @@ data:
 - Assist Satellite Client: [HassMic](https://github.com/jeffc/hassmic) 
 - Conversation Agent: [openai_compatible_conversation](https://github.com/Steven-Low/openai_compatible_conversation) (by Steven-Low) 
 
+## Roadmap
+[] Handle edge case like write event error when client disconnected during tts pipeline.
