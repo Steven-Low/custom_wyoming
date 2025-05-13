@@ -652,7 +652,7 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
                 # --- 3. Handle Client Event from Wyoming Satellite ---
                 if client_event_task in done:
 
-                    client_event = client_event_task.result() # Can raise if task had an exception
+                    client_event = client_event_task.result()
                     if client_event is None:
                         _LOGGER.warning("Satellite disconnected (read_event returned None).")
                         raise ConnectionResetError("Satellite disconnected") # Trigger reconnect logic
