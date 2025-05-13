@@ -47,7 +47,7 @@ from .models import DomainDataItem
 _LOGGER = logging.getLogger(__name__)
 
 _SAMPLES_PER_CHUNK: Final = 1024
-_RECONNECT_SECONDS: Final = 5
+_RECONNECT_SECONDS: Final = 10
 _RESTART_SECONDS: Final = 3
 _PING_TIMEOUT: Final = 5
 _PING_SEND_DELAY: Final = 2
@@ -184,7 +184,11 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
             self._pipeline_ended_event.set()
             self.device.set_is_active(False)
         elif event.type == assist_pipeline.PipelineEventType.WAKE_WORD_START:
-            self.hass.add_job(self._client.write_event(Detect().event()))
+            self.config_entry.async_create_background_task(
+                self.hass,
+                self._client.write_event(Detect().event()),
+                f"{self.entity_id} {event.type}",
+            )
         elif event.type == assist_pipeline.PipelineEventType.WAKE_WORD_END:
             # Wake word detection
             # Inform client of wake word detection
@@ -193,46 +197,59 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
                     name=wake_word_output["wake_word_id"],
                     timestamp=wake_word_output.get("timestamp"),
                 )
-                self.hass.add_job(self._client.write_event(detection.event()))
+                self.config_entry.async_create_background_task(
+                    self.hass,
+                    self._client.write_event(detection.event()),
+                    f"{self.entity_id} {event.type}",
+                )
         elif event.type == assist_pipeline.PipelineEventType.STT_START:
             # Speech-to-text
             self.device.set_is_active(True)
 
             if event.data:
-                self.hass.add_job(
-                    self._client.write_event(   # en
+                self.config_entry.async_create_background_task(
+                    self.hass,
+                    self._client.write_event(
                         Transcribe(language=event.data["metadata"]["language"]).event()
-                    )
+                    ),
+                    f"{self.entity_id} {event.type}",
                 )
         elif event.type == assist_pipeline.PipelineEventType.STT_VAD_START:
             # User started speaking
             if event.data:
-                self.hass.add_job(
+                self.config_entry.async_create_background_task(
+                    self.hass,
                     self._client.write_event(
                         VoiceStarted(timestamp=event.data["timestamp"]).event()
-                    )
+                    ),
+                    f"{self.entity_id} {event.type}",
                 )
         elif event.type == assist_pipeline.PipelineEventType.STT_VAD_END:
             # User stopped speaking
             if event.data:
-                self.hass.add_job(
+                self.config_entry.async_create_background_task(
+                    self.hass,
                     self._client.write_event(
                         VoiceStopped(timestamp=event.data["timestamp"]).event()
-                    )
+                    ),
+                    f"{self.entity_id} {event.type}",
                 )
         elif event.type == assist_pipeline.PipelineEventType.STT_END:
             # Speech-to-text transcript
             if event.data:
                 # Inform client of transript
                 stt_text = event.data["stt_output"]["text"]
-                self.hass.add_job(
-                    self._client.write_event(Transcript(text=stt_text).event())
+                self.config_entry.async_create_background_task(
+                    self.hass,
+                    self._client.write_event(Transcript(text=stt_text).event()),
+                    f"{self.entity_id} {event.type}",
                 )
         elif event.type == assist_pipeline.PipelineEventType.TTS_START:
             # Text-to-speech text
             if event.data:
                 # Inform client of text
-                self.hass.add_job(
+                self.config_entry.async_create_background_task(
+                    self.hass,
                     self._client.write_event(
                         Synthesize(
                             text=event.data["tts_input"],
@@ -241,23 +258,34 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
                                 language=event.data.get("language"),
                             ),
                         ).event()
-                    )
+                    ),
+                    f"{self.entity_id} {event.type}",
                 )
 
         elif event.type == assist_pipeline.PipelineEventType.TTS_END:
             # TTS stream
-            if event.data and (tts_output := event.data["tts_output"]):
-                media_id = tts_output["media_id"]
-                self.hass.add_job(self._stream_tts(media_id))
+            if (
+                event.data
+                and (tts_output := event.data["tts_output"])
+                and (stream := tts.async_get_stream(self.hass, tts_output["token"]))
+            ):
+                self.config_entry.async_create_background_task(
+                    self.hass,
+                    self._stream_tts(stream),
+                    f"{self.entity_id} {event.type}",
+                )
+
         elif event.type == assist_pipeline.PipelineEventType.ERROR:
             # Pipeline error
             if event.data:
-                self.hass.add_job(
+                self.config_entry.async_create_background_task(
+                    self.hass,
                     self._client.write_event(
                         Error(
                             text=event.data["message"], code=event.data["code"]
                         ).event()
-                    )
+                    ),
+                    f"{self.entity_id} {event.type}",
                 )
 
     async def async_announce(self, announcement: AssistSatelliteAnnouncement) -> None:
@@ -432,7 +460,12 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
         # ):
 
         # create pipeline without wakeword when triggered and run forcefully
-        self.hass.add_job(self._handle_remote_trigger_async())
+        # self.hass.add_job(self._handle_remote_trigger_async())
+        self.config_entry.async_create_background_task(
+                self.hass,
+                self._handle_remote_trigger_async(),
+                f"remote trigger bg task",
+        )
 
     def _send_pause(self) -> None:
         """Send a pause message to satellite."""
@@ -802,13 +835,16 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
         await self._client.disconnect()
         self._client = None
 
-    async def _stream_tts(self, media_id: str) -> None:
+    async def _stream_tts(self, tts_result: tts.ResultStream) -> None:
         """Stream TTS WAV audio to satellite in chunks."""
         assert self._client is not None
 
-        extension, data = await tts.async_get_media_source_audio(self.hass, media_id)
-        if extension != "wav":
-            raise ValueError(f"Cannot stream audio format to satellite: {extension}")
+        if tts_result.extension != "wav":
+            raise ValueError(
+                f"Cannot stream audio format to satellite: {tts_result.extension}"
+            )
+
+        data = b"".join([chunk async for chunk in tts_result.async_stream_result()])
 
         with io.BytesIO(data) as wav_io, wave.open(wav_io, "rb") as wav_file:
             sample_rate = wav_file.getframerate()
