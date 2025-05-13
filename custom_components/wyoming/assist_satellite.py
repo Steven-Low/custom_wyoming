@@ -38,11 +38,11 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import DOMAIN, SAMPLE_CHANNELS, SAMPLE_WIDTH
-from .data import WyomingService
-from .devices import SatelliteDevice
-from .entity import WyomingSatelliteEntity
-from .models import DomainDataItem
+from .custom_wyoming.const import DOMAIN, SAMPLE_CHANNELS, SAMPLE_WIDTH
+from .custom_wyoming.data import WyomingService
+from .custom_wyoming.devices import SatelliteDevice
+from .custom_wyoming.entity import WyomingSatelliteEntity
+from .custom_wyoming.models import DomainDataItem
 
 _LOGGER = logging.getLogger(__name__)
 
