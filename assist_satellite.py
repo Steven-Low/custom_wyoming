@@ -761,19 +761,7 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
                     )
                     pending.add(client_event_task)
 
-
-
             # End of processing 'done' tasks for this iteration.
-
-        # Loop exited (self.is_running is False or device is muted)
-        _LOGGER.debug("Exiting main satellite pipeline loop.")
-        # Cancel all pending tasks to ensure clean shutdown
-        for task in pending:
-            if not task.done():
-                task.cancel()
-        # Await cancellation/completion of these tasks
-        await asyncio.gather(*pending, return_exceptions=True)
-        _LOGGER.debug("All pending tasks in _run_pipeline_loop have been processed or cancelled.")
 
     def _run_pipeline_once(
             self, run_pipeline: RunPipeline, wake_word_phrase: str | None = None
@@ -853,29 +841,34 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
             _LOGGER.debug("Streaming %s TTS sample(s)", wav_file.getnframes())
 
             timestamp = 0
-            await self._client.write_event(
-                AudioStart(
-                    rate=sample_rate,
-                    width=sample_width,
-                    channels=sample_channels,
-                    timestamp=timestamp,
-                ).event()
-            )
 
-            # Stream audio chunks
-            while audio_bytes := wav_file.readframes(_SAMPLES_PER_CHUNK):
-                chunk = AudioChunk(
-                    rate=sample_rate,
-                    width=sample_width,
-                    channels=sample_channels,
-                    audio=audio_bytes,
-                    timestamp=timestamp,
+            try:
+                await self._client.write_event(
+                    AudioStart(
+                        rate=sample_rate,
+                        width=sample_width,
+                        channels=sample_channels,
+                        timestamp=timestamp,
+                    ).event()
                 )
-                await self._client.write_event(chunk.event())
-                timestamp += chunk.seconds
 
-            await self._client.write_event(AudioStop(timestamp=timestamp).event())
-            _LOGGER.debug("TTS streaming complete")
+                # Stream audio chunks
+                while audio_bytes := wav_file.readframes(_SAMPLES_PER_CHUNK):
+                    chunk = AudioChunk(
+                        rate=sample_rate,
+                        width=sample_width,
+                        channels=sample_channels,
+                        audio=audio_bytes,
+                        timestamp=timestamp,
+                    )
+                    await self._client.write_event(chunk.event())
+                    timestamp += chunk.seconds
+
+                await self._client.write_event(AudioStop(timestamp=timestamp).event())
+            except (ConnectionResetError, TypeError) as e:
+                _LOGGER.warning("Lost connection during pipeline execution: %s", e)
+
+            _LOGGER.info("TTS streaming complete") # debug
 
     async def _stt_stream(self) -> AsyncGenerator[bytes]:
         """Yield audio chunks from a queue."""
