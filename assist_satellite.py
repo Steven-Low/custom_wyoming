@@ -47,7 +47,7 @@ from .models import DomainDataItem
 _LOGGER = logging.getLogger(__name__)
 
 _SAMPLES_PER_CHUNK: Final = 1024
-_RECONNECT_SECONDS: Final = 10
+_RECONNECT_SECONDS: Final = 5
 _RESTART_SECONDS: Final = 3
 _PING_TIMEOUT: Final = 5
 _PING_SEND_DELAY: Final = 2
@@ -651,18 +651,8 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
 
                 # --- 3. Handle Client Event from Wyoming Satellite ---
                 if client_event_task in done:
-                    try:
-                        client_event = client_event_task.result() # Can raise if task had an exception
-                    except Exception as e:
-                        _LOGGER.error(f"Error reading event from satellite client: {e!r}")
-                        raise ConnectionError(f"Satellite client event read failed: {e!r}") # Trigger reconnect
 
-                    # Re-arm client_event_task for the next event
-                    client_event_task = self.config_entry.async_create_background_task(
-                        self.hass, self._client.read_event(), "satellite_client_event_read"
-                    )
-                    pending.add(client_event_task)
-
+                    client_event = client_event_task.result() # Can raise if task had an exception
                     if client_event is None:
                         _LOGGER.warning("Satellite disconnected (read_event returned None).")
                         raise ConnectionResetError("Satellite disconnected") # Trigger reconnect logic
