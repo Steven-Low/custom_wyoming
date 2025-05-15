@@ -1,5 +1,5 @@
 # Custom Wyoming
-Home assistant custom core component that allows you to temporarily trigger the ASR (STT) pipeline without using wake word for any assist_satellite device. You may wonder why am I re-inventing the wheel when there is StreamAssist out there. Well, because the StreamAssist integration is blocking my home assistant frontend from loading the service action. 
+A custom core component mod that allows you to temporarily trigger the ASR (STT) pipeline without using wake word for **any** assist_satellite device. It does **not require** specific integration or devices like esp32, atom, voice pe etc...
 
 ## Installation
 ##### HACS (UNKNOWN BUG)
@@ -26,4 +26,5 @@ data:
 - Conversation Agent: [openai_compatible_conversation](https://github.com/Steven-Low/openai_compatible_conversation) (by Steven-Low) 
 
 ## Roadmap
-[] Handle edge case like write event error when client disconnected during tts pipeline.
+- [] Handle edge case like write event error when client disconnected during tts pipeline.
+- [ ] Support multiple wake word 
