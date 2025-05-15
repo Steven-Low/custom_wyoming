@@ -26,5 +26,10 @@ data:
 - Conversation Agent: [openai_compatible_conversation](https://github.com/Steven-Low/openai_compatible_conversation) (by Steven-Low) 
 
 ## Roadmap
-- [] Handle edge case like write event error when client disconnected during tts pipeline.
-- [ ] Support multiple wake word 
+- [ ] Conversation Mode
+
+## Limitation
+- [ ] Edge case like write event error when client disconnected during tts pipeline
+
+# Credits
+- https://github.com/rhasspy/wyoming
