@@ -2,7 +2,7 @@
 A custom core component mod that allows you to temporarily trigger the ASR (STT) pipeline without using wake word for **any** assist_satellite device. It does **not require** specific integration or devices like esp32, atom, voice pe etc...
 
 ## Installation
-##### HACS (UNKNOWN BUG)
+##### HACS  
 HACS > Integrations > 3 dots (upper top corner) > Custom repositories > URL: https://github.com/Steven-Low/custom_wyoming, Category: Integration > Add > wait > Custom Wyoming > Install
 
 ##### Manual Install
