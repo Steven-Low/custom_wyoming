@@ -23,7 +23,7 @@ import io
 import wave
 import aiohttp
 
-genai_client = genai.Client(api_key="AIzaSyDqVdFFlbStLAst04rCtOkvMuPPVOXci24")
+genai_client = genai.Client(api_key="")
 
 _LOGGER = logging.getLogger(__name__)
 
