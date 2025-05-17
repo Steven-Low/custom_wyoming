@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from types import MappingProxyType
 from urllib.parse import urlparse
 
 import voluptuous as vol
 
-from homeassistant.config_entries import SOURCE_HASSIO, ConfigFlow, ConfigFlowResult
-from homeassistant.const import CONF_HOST, CONF_PORT
+from homeassistant.config_entries import SOURCE_HASSIO, ConfigFlow, ConfigFlowResult, ConfigEntry, OptionsFlow
+from homeassistant.const import CONF_HOST, CONF_PORT, CONF_API_KEY
 from homeassistant.helpers.service_info.hassio import HassioServiceInfo
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
@@ -90,6 +91,7 @@ class WyomingConfigFlow(ConfigFlow, domain=DOMAIN):
             }
         )
         return await self.async_step_hassio_confirm()
+    
 
     async def async_step_hassio_confirm(
         self, user_input: dict[str, Any] | None = None
@@ -176,3 +178,44 @@ class WyomingConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_PORT: self._service.port,
             },
         )
+
+    @staticmethod
+    def async_get_options_flow(
+        config_entry: ConfigEntry,
+    ) -> OptionsFlow:
+        """Create the options flow."""
+        return WyomingOptionsFlow(config_entry)
+    
+ 
+class WyomingOptionsFlow(OptionsFlow):
+    """Wyoming config flow options handler."""
+
+    def __init__(self, config_entry: ConfigEntry) -> None:
+        """Initialize options flow."""
+        self.config_entry = config_entry
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Manage the options."""
+        options: dict[str, Any] | MappingProxyType[str, Any] = self.config_entry.options
+
+        if user_input is not None:
+            options = {
+                CONF_API_KEY: user_input[CONF_API_KEY],
+            }
+            if user_input[CONF_API_KEY] == "none":
+                user_input.pop(CONF_API_KEY)
+            return self.async_create_entry(title="", data=user_input)
+
+ 
+        options_schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_API_KEY,
+                    description={"suggested_value": options.get(CONF_API_KEY)},
+                    default="none",
+                ): str,
+            }
+        )
+ 
+
+        return self.async_show_form(step_id="init", data_schema=options_schema)

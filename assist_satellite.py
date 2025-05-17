@@ -44,6 +44,8 @@ from .devices import SatelliteDevice
 from .entity import WyomingSatelliteEntity
 from .models import DomainDataItem
 
+from .flow import _FLOW_TYPE
+
 _LOGGER = logging.getLogger(__name__)
 
 _SAMPLES_PER_CHUNK: Final = 1024
@@ -177,6 +179,8 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
     def on_pipeline_event(self, event: PipelineEvent) -> None:
         """Set state based on pipeline stage."""
         assert self._client is not None
+        _LOGGER.info(">>>> event:")
+        _LOGGER.info(event.type)
 
         if event.type == assist_pipeline.PipelineEventType.RUN_END:
             # Pipeline run is complete
@@ -760,7 +764,9 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
             _LOGGER.debug("Received run information: %s", run_pipeline)
 
             start_stage = _STAGES.get(run_pipeline.start_stage)
-            end_stage = _STAGES.get(run_pipeline.end_stage)
+            # end_stage = _STAGES.get(run_pipeline.end_stage)
+            end_stage = _STAGES.get(PipelineStage.ASR)
+            
 
             if start_stage is None:
                 raise ValueError(f"Invalid start stage: {run_pipeline.start_stage}")

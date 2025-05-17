@@ -12,7 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import DOMAIN, SAMPLE_CHANNELS, SAMPLE_RATE, SAMPLE_WIDTH
+from .const import DOMAIN, SAMPLE_CHANNELS, SAMPLE_RATE, SAMPLE_WIDTH, CONF_API_KEY
 from .data import WyomingService
 from .error import WyomingError
 from .models import DomainDataItem
@@ -22,8 +22,9 @@ from google import genai
 import io
 import wave
 import aiohttp
-
-genai_client = genai.Client(api_key="")
+from typing import Any
+from .flow import Flow
+ 
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -54,14 +55,17 @@ class WyomingSttProvider(stt.SpeechToTextEntity):
         self.service = service
         asr_service = service.info.asr[0]
 
-        model_languages: set[str] = set()
-        for asr_model in asr_service.models:
-            if asr_model.installed:
-                model_languages.update(asr_model.languages)
+        model_languages: set[str] = set(["en"])
+        # for asr_model in asr_service.models:
+        #     if asr_model.installed:
+        #         model_languages.update(asr_model.languages)
 
         self._supported_languages = list(model_languages)
         self._attr_name = asr_service.name
         self._attr_unique_id = f"{config_entry.entry_id}-stt"
+        self.genai_client:Any = None
+        self.entry = config_entry
+ 
 
     @property
     def supported_languages(self) -> list[str]:
@@ -93,23 +97,28 @@ class WyomingSttProvider(stt.SpeechToTextEntity):
         """Return a list of supported channels."""
         return [stt.AudioChannels.CHANNEL_MONO]
     
+    @staticmethod
+    async def convert_raw_to_wav(audio_data: bytes) -> bytes:
+        buffer = io.BytesIO()
+        with wave.open(buffer, 'wb') as wf:
+            wf.setnchannels(SAMPLE_CHANNELS)
+            wf.setsampwidth(SAMPLE_WIDTH)
+            wf.setframerate(SAMPLE_RATE)
+            wf.writeframes(audio_data)
+        return buffer.getvalue()
 
-
-
+    def setup_genai_client(self):
+        if(api_key := self.entry.data.get("api_key")):
+            self.genai_client = genai.Client(api_key=api_key)
 
     async def async_process_audio_stream(
         self, metadata: stt.SpeechMetadata, stream: AsyncIterable[bytes]
     ) -> stt.SpeechResult:
         """Process an audio stream to STT service."""
-
-        async def convert_raw_to_wav(audio_data: bytes) -> bytes:
-            buffer = io.BytesIO()
-            with wave.open(buffer, 'wb') as wf:
-                wf.setnchannels(SAMPLE_CHANNELS)
-                wf.setsampwidth(SAMPLE_WIDTH)
-                wf.setframerate(SAMPLE_RATE)
-                wf.writeframes(audio_data)
-            return buffer.getvalue()
+        # if(api_key := self.entry.data.get("api_key")):
+        #     self.genai_client = genai.Client(api_key=api_key)
+        if self.genai_client is None:
+            result = await self.hass.async_add_executor_job(self.setup_genai_client)
 
         try:
             async with AsyncTcpClient(self.service.host, self.service.port) as client:
@@ -127,7 +136,7 @@ class WyomingSttProvider(stt.SpeechToTextEntity):
                 audio_data = bytearray()
                 async for audio_bytes in stream:
                     audio_data.extend(audio_bytes)
-                wav_data = await convert_raw_to_wav(audio_data)
+                wav_data = await self.convert_raw_to_wav(audio_data)
 
                 async with aiohttp.ClientSession() as session:
                     async with session.post(
@@ -139,7 +148,7 @@ class WyomingSttProvider(stt.SpeechToTextEntity):
                         _LOGGER.debug("Webhook response: %s", resp)
 
                 
-                response = genai_client.models.generate_content(
+                response = self.genai_client.models.generate_content(
                     model="gemini-2.0-flash",
                     contents=[
                         'Transcribe this audio clip',
@@ -177,6 +186,9 @@ class WyomingSttProvider(stt.SpeechToTextEntity):
                 #         transcript = Transcript.from_event(event)
                 #         text = transcript.text
                 #         break
+
+                
+
 
         except (OSError, WyomingError):
             _LOGGER.exception("Error processing audio stream")

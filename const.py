@@ -6,5 +6,7 @@ SAMPLE_RATE = 16000
 SAMPLE_WIDTH = 2
 SAMPLE_CHANNELS = 1
 
+CONF_API_KEY = ""
+
 # For multi-speaker voices, this is the name of the selected speaker.
 ATTR_SPEAKER = "speaker"

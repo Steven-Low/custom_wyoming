@@ -10,7 +10,7 @@ _FLOW_TYPE = "flow"
 @dataclass
 class Flow(Eventable):
     """Request to synthesize a chain of audio segments in a single request."""
-    audio: bytearray
+    audio: bytearray | None = None
     """Audio bytes in stream"""
 
     language: str | None = None
