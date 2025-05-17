@@ -87,6 +87,7 @@ class WyomingConversationEntity(
 
         self._supported_languages = list(model_languages)
         self._attr_unique_id = f"{config_entry.entry_id}-conversation"
+        _LOGGER.info("<=================== INITIAL SETUP ===================>")
 
     @property
     def supported_languages(self) -> list[str]:
@@ -108,6 +109,8 @@ class WyomingConversationEntity(
                     ).event()
                 )
 
+                _LOGGER.info("<=================== TESTING ===================>")
+
                 while True:
                     event = await client.read_event()
                     if event is None:
@@ -125,6 +128,7 @@ class WyomingConversationEntity(
                         # Success
                         recognized_intent = Intent.from_event(event)
                         _LOGGER.debug("Recognized intent: %s", recognized_intent)
+             
 
                         intent_type = recognized_intent.name
                         intent_slots = {

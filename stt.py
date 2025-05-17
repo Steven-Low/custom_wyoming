@@ -17,6 +17,14 @@ from .data import WyomingService
 from .error import WyomingError
 from .models import DomainDataItem
 
+from google.genai import types
+from google import genai
+import io
+import wave
+import aiohttp
+
+genai_client = genai.Client(api_key="AIzaSyDqVdFFlbStLAst04rCtOkvMuPPVOXci24")
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -84,15 +92,29 @@ class WyomingSttProvider(stt.SpeechToTextEntity):
     def supported_channels(self) -> list[stt.AudioChannels]:
         """Return a list of supported channels."""
         return [stt.AudioChannels.CHANNEL_MONO]
+    
+
+
+
 
     async def async_process_audio_stream(
         self, metadata: stt.SpeechMetadata, stream: AsyncIterable[bytes]
     ) -> stt.SpeechResult:
         """Process an audio stream to STT service."""
+
+        async def convert_raw_to_wav(audio_data: bytes) -> bytes:
+            buffer = io.BytesIO()
+            with wave.open(buffer, 'wb') as wf:
+                wf.setnchannels(SAMPLE_CHANNELS)
+                wf.setsampwidth(SAMPLE_WIDTH)
+                wf.setframerate(SAMPLE_RATE)
+                wf.writeframes(audio_data)
+            return buffer.getvalue()
+
         try:
             async with AsyncTcpClient(self.service.host, self.service.port) as client:
                 # Set transcription language
-                await client.write_event(Transcribe(language=metadata.language).event())
+                # await client.write_event(Transcribe(language=metadata.language).event())
 
                 # Begin audio stream
                 await client.write_event(
@@ -102,29 +124,59 @@ class WyomingSttProvider(stt.SpeechToTextEntity):
                         channels=SAMPLE_CHANNELS,
                     ).event(),
                 )
-
+                audio_data = bytearray()
                 async for audio_bytes in stream:
-                    chunk = AudioChunk(
-                        rate=SAMPLE_RATE,
-                        width=SAMPLE_WIDTH,
-                        channels=SAMPLE_CHANNELS,
-                        audio=audio_bytes,
-                    )
-                    await client.write_event(chunk.event())
+                    audio_data.extend(audio_bytes)
+                wav_data = await convert_raw_to_wav(audio_data)
+
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        "http://10.10.10.111:5678/webhook-test/wyoming",
+                        data=io.BytesIO(wav_data),
+                        headers={"Content-Type": "audio/wav"}
+                    ) as res:
+                        resp = await res.text()
+                        _LOGGER.debug("Webhook response: %s", resp)
+
+                
+                response = genai_client.models.generate_content(
+                    model="gemini-2.0-flash",
+                    contents=[
+                        'Transcribe this audio clip',
+                        types.Part.from_bytes(
+                            data=wav_data,
+                            mime_type='audio/wav',
+                        )
+                    ]
+                )
+
+                text = response.text
+                _LOGGER.info("<=== Gemini Response: " + text)
+
+
+                # async for audio_bytes in stream:
+                #     chunk = AudioChunk(
+                #         rate=SAMPLE_RATE,
+                #         width=SAMPLE_WIDTH,
+                #         channels=SAMPLE_CHANNELS,
+                #         audio=audio_bytes,
+                #     )
+                #     await client.write_event(chunk.event())
 
                 # End audio stream
                 await client.write_event(AudioStop().event())
+                
 
-                while True:
-                    event = await client.read_event()
-                    if event is None:
-                        _LOGGER.debug("Connection lost")
-                        return stt.SpeechResult(None, stt.SpeechResultState.ERROR)
+                # while True:
+                #     event = await client.read_event()
+                #     if event is None:
+                #         _LOGGER.debug("Connection lost")
+                #         return stt.SpeechResult(None, stt.SpeechResultState.ERROR)
 
-                    if Transcript.is_type(event.type):
-                        transcript = Transcript.from_event(event)
-                        text = transcript.text
-                        break
+                #     if Transcript.is_type(event.type):
+                #         transcript = Transcript.from_event(event)
+                #         text = transcript.text
+                #         break
 
         except (OSError, WyomingError):
             _LOGGER.exception("Error processing audio stream")
