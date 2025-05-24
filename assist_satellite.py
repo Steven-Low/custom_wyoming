@@ -101,6 +101,7 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
         WyomingSatelliteEntity.__init__(self, device)
         AssistSatelliteEntity.__init__(self)
 
+
         self.service = service
         self.device = device
         self.config_entry = config_entry
@@ -247,6 +248,9 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
         elif event.type == assist_pipeline.PipelineEventType.TTS_START:
             # Text-to-speech text
             if event.data:
+                # Save response text (tts_input)
+                self.hass.states.async_set("wyoming.response_text", event.data["tts_input"])
+
                 # Inform client of text
                 self.config_entry.async_create_background_task(
                     self.hass,
@@ -857,7 +861,7 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
                 await self._client.write_event(AudioStop(timestamp=timestamp).event())
             except (ConnectionResetError, TypeError) as e:
                 _LOGGER.warning("Lost client connection during pipeline execution: %s", e)
-                #elf._audio_queue.put_nowait(None) # clean the audio pipeline 
+                #elf._audio_queue.put_nowait(None) # clean the audio pipeline
 
             _LOGGER.info("TTS streaming complete") # debug
 
