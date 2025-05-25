@@ -505,7 +505,7 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
 
     async def _handle_remote_trigger_async(self) -> None:
         """
-        Prepares for an immediate pipeline run triggered by audio settings change.
+        Prepares for an immediate pipeline run triggered by service.
         It signals any current pipeline to stop and then sets up configuration
         and an event for the main loop to start a new pipeline.
         """
