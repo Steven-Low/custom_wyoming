@@ -17,6 +17,13 @@ from .data import WyomingService
 from .error import WyomingError
 from .models import DomainDataItem
 
+import base64
+import io
+import wave
+import uuid
+import os
+from functools import partial
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -30,6 +37,7 @@ async def async_setup_entry(
     async_add_entities(
         [
             WyomingSttProvider(config_entry, item.service),
+            WyomingSttRawAudioProvider(config_entry)
         ]
     )
 
@@ -134,3 +142,91 @@ class WyomingSttProvider(stt.SpeechToTextEntity):
             text,
             stt.SpeechResultState.SUCCESS,
         )
+
+
+
+class WyomingSttRawAudioProvider(stt.SpeechToTextEntity):
+    """STT entity that returns raw audio as base64 WAV."""
+
+    def __init__(
+        self,
+        config_entry: ConfigEntry,
+
+    ) -> None:
+        """Set up raw audio provider."""
+        self._attr_name = "Raw Audio (Base64 WAV)"
+        self._attr_unique_id = f"{config_entry.entry_id}-stt-raw"
+
+    @property
+    def supported_languages(self) -> list[str]:
+        """Return a list of supported languages."""
+        return ["en-US"]  # Dummy value since we're not transcribing
+
+    @property
+    def supported_formats(self) -> list[stt.AudioFormats]:
+        """Return a list of supported formats."""
+        return [stt.AudioFormats.WAV]
+
+    @property
+    def supported_codecs(self) -> list[stt.AudioCodecs]:
+        """Return a list of supported codecs."""
+        return [stt.AudioCodecs.PCM]
+
+    @property
+    def supported_bit_rates(self) -> list[stt.AudioBitRates]:
+        """Return a list of supported bitrates."""
+        return [stt.AudioBitRates.BITRATE_16]
+
+    @property
+    def supported_sample_rates(self) -> list[stt.AudioSampleRates]:
+        """Return a list of supported samplerates."""
+        return [stt.AudioSampleRates.SAMPLERATE_16000]
+
+    @property
+    def supported_channels(self) -> list[stt.AudioChannels]:
+        """Return a list of supported channels."""
+        return [stt.AudioChannels.CHANNEL_MONO]
+
+    @staticmethod
+    async def convert_raw_to_wav(audio_data: bytes) -> bytes:
+        buffer = io.BytesIO()
+        with wave.open(buffer, 'wb') as wf:
+            wf.setnchannels(SAMPLE_CHANNELS)
+            wf.setsampwidth(SAMPLE_WIDTH)
+            wf.setframerate(SAMPLE_RATE)
+            wf.writeframes(audio_data)
+        return buffer.getvalue()
+
+    async def async_process_audio_stream(
+        self, metadata: stt.SpeechMetadata, stream: AsyncIterable[bytes]
+    ) -> stt.SpeechResult:
+        """Capture and save raw PCM stream as a WAV file."""
+
+        # Capture data
+        audio_data = b""
+        async for chunk in stream:
+            audio_data += chunk
+
+        try:
+            # Convert raw PCM to WAV
+            wav_bytes = await self.convert_raw_to_wav(audio_data)
+
+            # Generate a unique filename
+            output_dir = self.hass.config.path("stt")
+            os.makedirs(output_dir, exist_ok=True)
+            file_id = f"stt-{uuid.uuid4()}.wav"
+            file_path = os.path.join(output_dir, file_id)
+
+            # Write WAV bytes to file
+            def save_wav_bytes(path, data):
+                with open(path, "wb") as f:
+                    f.write(data)
+
+            _LOGGER.info("===========================> " + file_path)
+            await self.hass.async_add_executor_job(partial(save_wav_bytes, path=file_path, data=wav_bytes))
+
+            return stt.SpeechResult(file_path, stt.SpeechResultState.SUCCESS)
+
+        except Exception as err:
+            _LOGGER.error("Error capturing and encoding audio stream: %s", err)
+            return stt.SpeechResult(None, stt.SpeechResultState.ERROR)
