@@ -51,6 +51,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if service is None:
         raise ConfigEntryNotReady("Unable to connect")
 
+    # Save response
+    hass.states.async_set("wyoming.response_text", "none")
+
     item = DomainDataItem(service=service)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = item
 
