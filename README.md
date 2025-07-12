@@ -13,6 +13,11 @@ git clone https://github.com/Steven-Low/custom_wyoming.git
 mv custom_wyoming wyoming
 ```
 - Restart your HA.
+- Your wyoming devices shall automatically discovered, otherwise add them accordingly:
+  1. assist_satelite: 11700 (default port)
+  2. openwakeword: 10400
+  3. whisper: 10300
+  4. piper: 10200
 
 ## Service
 ```
